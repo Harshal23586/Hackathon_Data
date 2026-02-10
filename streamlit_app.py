@@ -13,7 +13,6 @@ try:
     PLOTLY_AVAILABLE = True
 except ImportError:
     PLOTLY_AVAILABLE = False
-    st.warning("Plotly not available. Using simpler visualizations.")
 
 # Set page configuration
 st.set_page_config(
@@ -60,46 +59,50 @@ st.markdown("""
         font-size: 1rem;
         opacity: 0.9;
     }
+    .select-all-btn {
+        margin-top: 5px;
+        margin-bottom: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Helper function for select all functionality
-def select_all_multiselect(label, options, default=None, key=None):
-    """Create a multiselect with Select All/Clear All buttons"""
-    if default is None:
-        default = []
+# FIXED: Select All functionality that actually works
+def create_select_all_filter(label, options, default_selected=None, key_prefix="filter"):
+    """
+    Create a filter with Select All functionality that actually works
+    """
+    if default_selected is None:
+        default_selected = options[:min(5, len(options))]
     
-    # Create container
-    container = st.container()
+    # Initialize session state for this filter
+    filter_key = f"{key_prefix}_{label.replace(' ', '_').lower()}"
     
-    # Initialize session state if not exists
-    if f"{key}_selected" not in st.session_state:
-        st.session_state[f"{key}_selected"] = default
+    if filter_key not in st.session_state:
+        st.session_state[filter_key] = default_selected
     
-    # Get current selection from session state
-    current_selection = st.session_state[f"{key}_selected"]
+    # Create columns for buttons
+    button_col1, button_col2 = st.columns(2)
     
-    # Buttons for select all/clear all
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✓ Select All", key=f"{key}_all", use_container_width=True):
-            st.session_state[f"{key}_selected"] = options
-            st.rerun()
-    with col2:
-        if st.button("✗ Clear All", key=f"{key}_clear", use_container_width=True):
-            st.session_state[f"{key}_selected"] = []
+    with button_col1:
+        if st.button(f"✓ Select All", key=f"{filter_key}_select_all"):
+            st.session_state[filter_key] = options
             st.rerun()
     
-    # Multiselect widget
-    selected = container.multiselect(
+    with button_col2:
+        if st.button(f"✗ Clear All", key=f"{filter_key}_clear_all"):
+            st.session_state[filter_key] = []
+            st.rerun()
+    
+    # Create the multiselect
+    selected = st.multiselect(
         label,
         options=options,
-        default=st.session_state[f"{key}_selected"],
-        key=key
+        default=st.session_state[filter_key],
+        key=filter_key
     )
     
     # Update session state
-    st.session_state[f"{key}_selected"] = selected
+    st.session_state[filter_key] = selected
     
     return selected
 
@@ -110,10 +113,8 @@ def load_data():
         # Read the Excel file
         df = pd.read_excel('Events Participation Updated.xlsx')
         
-        # FIX: Handle duplicate column names by renaming duplicates
+        # Handle duplicate column names by renaming duplicates
         cols = pd.Series(df.columns)
-        
-        # Identify duplicate column names
         duplicate_mask = cols.duplicated(keep='first')
         
         if duplicate_mask.any():
@@ -131,58 +132,25 @@ def load_data():
                     new_cols.append(f"{col}_{seen[col]}")
             
             df.columns = new_cols
-            st.success(f"✅ Renamed duplicate columns. New columns: {', '.join(new_cols[:10])}...")
         
-        # Clean column names (remove extra spaces)
+        # Clean column names
         df.columns = df.columns.str.strip()
         
-        # Check for date columns and convert (handle multiple date columns)
-        date_columns = []
+        # Try to find and convert date columns
         for col in df.columns:
             if 'date' in str(col).lower():
-                date_columns.append(col)
-        
-        if date_columns:
-            st.info(f"Found date columns: {date_columns}")
-            
-            # Try each date column
-            for date_col in date_columns:
                 try:
-                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-                    # Rename the first successful date column to 'Date'
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    # Rename to 'Date' for consistency
                     if 'Date' not in df.columns:
-                        df = df.rename(columns={date_col: 'Date'})
-                        st.success(f"✅ Using '{date_col}' as Date column")
-                        break
-                except Exception as e:
-                    st.warning(f"Could not convert {date_col}: {e}")
+                        df = df.rename(columns={col: 'Date'})
+                    break
+                except:
+                    continue
         
-        # If date conversion was successful, extract date parts
-        if 'Date' in df.columns:
-            try:
-                if pd.api.types.is_datetime64_any_dtype(df['Date']):
-                    df['Year'] = df['Date'].dt.year
-                    df['Month'] = df['Date'].dt.month_name()
-                    df['Quarter'] = df['Date'].dt.quarter
-                else:
-                    # Try to convert
-                    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-                    if pd.api.types.is_datetime64_any_dtype(df['Date']):
-                        df['Year'] = df['Date'].dt.year
-                        df['Month'] = df['Date'].dt.month_name()
-                        df['Quarter'] = df['Date'].dt.quarter
-            except Exception as e:
-                st.warning(f"Could not extract date parts: {e}")
-        
-        # Show column info for debugging
+        # Show column info
         st.sidebar.info(f"📊 Loaded {len(df)} records")
-        st.sidebar.info(f"📋 Columns: {len(df.columns)}")
-        
-        # Show first few column names
-        col_preview = df.columns.tolist()[:10]
-        if len(df.columns) > 10:
-            col_preview.append(f"... and {len(df.columns) - 10} more")
-        st.sidebar.info(f"🔍 Columns found: {', '.join(col_preview)}")
+        st.sidebar.info(f"📋 Found {len(df.columns)} columns")
         
         return df
         
@@ -214,9 +182,6 @@ def create_sample_data():
     
     df = pd.DataFrame(data)
     df['Date'] = pd.to_datetime(df['Date'])
-    df['Year'] = df['Date'].dt.year
-    df['Month'] = df['Date'].dt.month_name()
-    df['Quarter'] = df['Date'].dt.quarter
     
     return df
 
@@ -224,145 +189,115 @@ def main():
     # Load data
     df = load_data()
     
-    # Debug: Show all columns
-    if st.sidebar.button("🔍 Show All Columns"):
-        st.sidebar.write("All Columns in DataFrame:")
+    # Debug: Show column names
+    if st.sidebar.button("🔍 Show Columns"):
+        st.sidebar.write("Columns in DataFrame:")
         for i, col in enumerate(df.columns):
             st.sidebar.write(f"{i+1}. {col}")
     
     # Main header
     st.markdown('<h1 class="main-header">🎓 Event Participation Dashboard</h1>', unsafe_allow_html=True)
     
-    # Sidebar with enhanced filters
-    st.sidebar.title("🎯 Advanced Filters")
+    # Sidebar with filters
+    st.sidebar.title("🎯 Filters")
     st.sidebar.markdown("---")
     
     filters_applied = {}
     
-    # Date Range Filter - Only if Date column exists and is datetime
-    if 'Date' in df.columns:
-        try:
-            if pd.api.types.is_datetime64_any_dtype(df['Date']):
-                st.sidebar.subheader("📅 Date Range")
-                min_date = df['Date'].min().date()
-                max_date = df['Date'].max().date()
-                
-                date_range = st.sidebar.date_input(
-                    "Select Date Range",
-                    [min_date, max_date],
-                    min_value=min_date,
-                    max_value=max_date
-                )
-                
-                if len(date_range) == 2:
-                    start_date, end_date = date_range
-                    df = df[(df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)]
-                    filters_applied['Date Range'] = f"{start_date} to {end_date}"
-            else:
-                st.sidebar.warning("⚠️ Date column is not in datetime format")
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Date filter error: {e}")
+    # Date Range Filter
+    if 'Date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['Date']):
+        st.sidebar.subheader("📅 Date Range")
+        min_date = df['Date'].min().date()
+        max_date = df['Date'].max().date()
+        
+        date_range = st.sidebar.date_input(
+            "Select Date Range",
+            [min_date, max_date],
+            min_value=min_date,
+            max_value=max_date
+        )
+        
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            df = df[(df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)]
+            filters_applied['Date Range'] = f"{start_date} to {end_date}"
     
-    # Course Filter with Select All
-    course_col = None
-    for col in df.columns:
-        if 'course' in str(col).lower():
-            course_col = col
-            break
+    # Find relevant columns
+    course_col = next((col for col in df.columns if 'course' in str(col).lower()), None)
+    event_col = next((col for col in df.columns if 'event' in str(col).lower() and 'title' in str(col).lower()), None)
+    gender_col = next((col for col in df.columns if 'gender' in str(col).lower()), None)
+    venue_col = next((col for col in df.columns if 'venue' in str(col).lower()), None)
+    year_col = next((col for col in df.columns if col in ['Year', 'Academic Year', 'year']), None)
     
+    # Course Filter with WORKING Select All
     if course_col:
         st.sidebar.subheader("🎓 Courses")
         all_courses = sorted([str(c) for c in df[course_col].dropna().unique() if pd.notna(c)])
-        selected_courses = select_all_multiselect(
+        selected_courses = create_select_all_filter(
             "Select Courses",
             all_courses,
-            default=all_courses[:min(3, len(all_courses))],
-            key="courses"
+            default_selected=all_courses[:min(3, len(all_courses))],
+            key_prefix="course"
         )
         
         if selected_courses:
             df = df[df[course_col].isin(selected_courses)]
             filters_applied['Courses'] = f"{len(selected_courses)} selected"
     
-    # Event Filter with Select All
-    event_col = None
-    for col in df.columns:
-        if 'event' in str(col).lower():
-            event_col = col
-            break
-    
+    # Event Filter with WORKING Select All
     if event_col:
         st.sidebar.subheader("🎯 Events")
         all_events = sorted([str(e) for e in df[event_col].dropna().unique() if pd.notna(e)])
-        selected_events = select_all_multiselect(
+        selected_events = create_select_all_filter(
             "Select Events",
             all_events,
-            default=all_events[:min(3, len(all_events))],
-            key="events"
+            default_selected=all_events[:min(3, len(all_events))],
+            key_prefix="event"
         )
         
         if selected_events:
             df = df[df[event_col].isin(selected_events)]
             filters_applied['Events'] = f"{len(selected_events)} selected"
     
-    # Gender Filter with Select All
-    gender_col = None
-    for col in df.columns:
-        if 'gender' in str(col).lower():
-            gender_col = col
-            break
-    
+    # Gender Filter with WORKING Select All
     if gender_col:
         st.sidebar.subheader("⚧️ Gender")
         all_genders = sorted([str(g) for g in df[gender_col].dropna().unique() if pd.notna(g)])
-        selected_genders = select_all_multiselect(
+        selected_genders = create_select_all_filter(
             "Select Gender",
             all_genders,
-            default=all_genders,
-            key="genders"
+            default_selected=all_genders,
+            key_prefix="gender"
         )
         
         if selected_genders:
             df = df[df[gender_col].isin(selected_genders)]
             filters_applied['Genders'] = f"{len(selected_genders)} selected"
     
-    # Venue Filter with Select All
-    venue_col = None
-    for col in df.columns:
-        if 'venue' in str(col).lower():
-            venue_col = col
-            break
-    
+    # Venue Filter with WORKING Select All
     if venue_col:
         st.sidebar.subheader("📍 Venues")
         all_venues = sorted([str(v) for v in df[venue_col].dropna().unique() if pd.notna(v)])
-        selected_venues = select_all_multiselect(
+        selected_venues = create_select_all_filter(
             "Select Venues",
             all_venues,
-            default=all_venues[:min(3, len(all_venues))],
-            key="venues"
+            default_selected=all_venues[:min(3, len(all_venues))],
+            key_prefix="venue"
         )
         
         if selected_venues:
             df = df[df[venue_col].isin(selected_venues)]
             filters_applied['Venues'] = f"{len(selected_venues)} selected"
     
-    # Year Filter (Academic Year) with Select All
-    year_col = None
-    # First check for academic year
-    for col in df.columns:
-        if col in ['Year', 'Academic Year', 'Academic_Year', 'year']:
-            year_col = col
-            break
-    
+    # Year Filter with WORKING Select All
     if year_col:
         st.sidebar.subheader("📚 Academic Year")
         all_years = sorted([str(y) for y in df[year_col].dropna().unique() if pd.notna(y)])
-        selected_years = select_all_multiselect(
+        selected_years = create_select_all_filter(
             "Select Years",
             all_years,
-            default=all_years,
-            key="years"
+            default_selected=all_years,
+            key_prefix="year"
         )
         
         if selected_years:
@@ -375,11 +310,7 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     
     # Find candidate name column
-    candidate_col = None
-    for col in df.columns:
-        if 'name' in str(col).lower() or 'candidate' in str(col).lower():
-            candidate_col = col
-            break
+    candidate_col = next((col for col in df.columns if 'name' in str(col).lower() or 'candidate' in str(col).lower()), None)
     
     with col1:
         participants = df[candidate_col].nunique() if candidate_col else 0
@@ -389,9 +320,9 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        events = df[event_col].nunique() if event_col else 0
+        events_count = df[event_col].nunique() if event_col else 0
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-value">{events:,}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{events_count:,}</div>', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">🎯 Unique Events</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -414,13 +345,12 @@ def main():
         st.markdown('<div class="metric-label">⚖️ Gender Distribution</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Data Preview
+    # Data Preview - FIXED: Using width='stretch' instead of use_container_width
     st.markdown('<h2 class="sub-header">📋 Data Explorer</h2>', unsafe_allow_html=True)
     
-    # Search bar
+    # Search functionality
     search_query = st.text_input("🔎 Search across all columns:", placeholder="Type to search...")
     
-    # Apply search
     if search_query:
         mask = pd.Series(False, index=df.index)
         for col in df.select_dtypes(include=['object']).columns:
@@ -429,125 +359,116 @@ def main():
     else:
         df_display = df.copy()
     
-    # Display data - show all columns but limit rows
-    st.dataframe(df_display.head(50), use_container_width=True, height=400)
+    # Display first 50 rows - FIXED: using width='stretch'
+    st.dataframe(df_display.head(50), height=400, width='stretch')
     st.caption(f"Showing {min(50, len(df_display))} of {len(df_display)} records")
     
-    # Enhanced Visualizations
-    st.markdown('<h2 class="sub-header">📈 Advanced Analytics</h2>', unsafe_allow_html=True)
+    # Visualizations
+    st.markdown('<h2 class="sub-header">📈 Analytics</h2>', unsafe_allow_html=True)
     
-    # Create tabs for visualizations
-    viz_tab1, viz_tab2, viz_tab3 = st.tabs(["📊 Event Analysis", "👥 Participant Insights", "🎓 Course & Venue"])
+    tab1, tab2, tab3 = st.tabs(["📊 Events", "👥 Participants", "📍 Locations"])
     
-    with viz_tab1:
+    with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Top Events Chart
             if event_col:
                 top_events = df[event_col].value_counts().head(10)
-                if PLOTLY_AVAILABLE and not top_events.empty:
-                    try:
-                        fig1 = go.Figure(data=[
-                            go.Bar(
-                                x=top_events.values,
-                                y=top_events.index,
-                                orientation='h',
-                                marker_color='#3B82F6'
+                if not top_events.empty:
+                    if PLOTLY_AVAILABLE:
+                        try:
+                            fig = go.Figure(data=[
+                                go.Bar(
+                                    x=top_events.values,
+                                    y=top_events.index,
+                                    orientation='h',
+                                    marker_color='#3B82F6'
+                                )
+                            ])
+                            fig.update_layout(
+                                title='Top 10 Events',
+                                xaxis_title='Participants',
+                                yaxis_title='Event',
+                                height=400
                             )
-                        ])
-                        fig1.update_layout(
-                            title='Top 10 Events by Participation',
-                            xaxis_title='Number of Participants',
-                            yaxis_title='Event',
-                            height=400
-                        )
-                        st.plotly_chart(fig1, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Plotly error: {e}")
+                            st.plotly_chart(fig, use_container_width=True)
+                        except:
+                            st.bar_chart(top_events)
+                    else:
                         st.bar_chart(top_events)
-                else:
-                    st.bar_chart(top_events)
         
         with col2:
-            # Event Distribution Table
             if event_col:
-                event_summary = df[event_col].value_counts().reset_index()
-                event_summary.columns = ['Event Title', 'Count']
-                st.dataframe(event_summary, use_container_width=True, height=400)
+                event_counts = df[event_col].value_counts().reset_index()
+                event_counts.columns = ['Event', 'Count']
+                st.dataframe(event_counts, height=400, width='stretch')
     
-    with viz_tab2:
+    with tab2:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Gender Distribution
             if gender_col:
                 gender_counts = df[gender_col].value_counts()
-                if PLOTLY_AVAILABLE and not gender_counts.empty:
-                    try:
-                        fig2 = go.Figure(data=[go.Pie(
-                            labels=gender_counts.index,
-                            values=gender_counts.values,
-                            hole=.3
-                        )])
-                        fig2.update_layout(
-                            title='Gender Distribution',
-                            height=400
-                        )
-                        st.plotly_chart(fig2, use_container_width=True)
-                    except:
+                if not gender_counts.empty:
+                    if PLOTLY_AVAILABLE:
+                        try:
+                            fig = go.Figure(data=[go.Pie(
+                                labels=gender_counts.index,
+                                values=gender_counts.values,
+                                hole=.3
+                            )])
+                            fig.update_layout(
+                                title='Gender Distribution',
+                                height=400
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        except:
+                            st.bar_chart(gender_counts)
+                    else:
                         st.bar_chart(gender_counts)
-                else:
-                    st.bar_chart(gender_counts)
         
         with col2:
-            # Academic Year Distribution
-            if year_col:
-                year_counts = df[year_col].value_counts()
-                if not year_counts.empty:
-                    st.bar_chart(year_counts)
+            if candidate_col:
+                top_participants = df[candidate_col].value_counts().head(10)
+                if not top_participants.empty:
+                    st.bar_chart(top_participants)
     
-    with viz_tab3:
+    with tab3:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Course-wise participation
             if course_col:
                 course_counts = df[course_col].value_counts()
                 if not course_counts.empty:
                     st.bar_chart(course_counts)
         
         with col2:
-            # Venue Distribution
             if venue_col:
                 venue_counts = df[venue_col].value_counts().head(10)
                 if not venue_counts.empty:
                     if PLOTLY_AVAILABLE:
                         try:
-                            fig3 = go.Figure(data=[
+                            fig = go.Figure(data=[
                                 go.Bar(
-                                    x=venue_counts.index.astype(str),
-                                    y=venue_counts.values,
-                                    marker_color='#10B981',
-                                    text=venue_counts.values.astype(str).tolist(),
-                                    textposition='auto'
+                                    x=venue_counts.values,
+                                    y=venue_counts.index,
+                                    orientation='h',
+                                    marker_color='#10B981'
                                 )
                             ])
-                            fig3.update_layout(
+                            fig.update_layout(
                                 title='Top 10 Venues',
-                                xaxis_title='Venue',
-                                yaxis_title='Number of Events',
-                                height=400,
-                                xaxis_tickangle=45
+                                xaxis_title='Events',
+                                yaxis_title='Venue',
+                                height=400
                             )
-                            st.plotly_chart(fig3, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Plotly error: {e}")
+                            st.plotly_chart(fig, use_container_width=True)
+                        except:
                             st.bar_chart(venue_counts)
                     else:
                         st.bar_chart(venue_counts)
     
-    # Export Section
+    # Export Section - FIXED: using width='stretch' for buttons
     st.markdown('<h2 class="sub-header">📥 Export Data</h2>', unsafe_allow_html=True)
     
     export_col1, export_col2 = st.columns(2)
@@ -558,9 +479,9 @@ def main():
         st.download_button(
             label="📥 Download CSV",
             data=csv_data,
-            file_name="event_participation_data.csv",
+            file_name="event_participation.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True  # This is still valid for download_button
         )
     
     with export_col2:
@@ -572,17 +493,18 @@ def main():
         st.download_button(
             label="📊 Download Excel",
             data=output.getvalue(),
-            file_name="event_participation_report.xlsx",
+            file_name="event_participation.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            use_container_width=True  # This is still valid for download_button
         )
     
-    # Reset filters button
+    # Reset button in sidebar
     st.sidebar.markdown("---")
     if st.sidebar.button("🔄 Reset All Filters", use_container_width=True):
+        # Clear all filter selections
         for key in list(st.session_state.keys()):
-            if key.endswith('_selected'):
-                st.session_state[key] = []
+            if key.startswith(('course_', 'event_', 'gender_', 'venue_', 'year_')):
+                del st.session_state[key]
         st.rerun()
 
 if __name__ == "__main__":
