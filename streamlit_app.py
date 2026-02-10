@@ -82,35 +82,72 @@ st.markdown("""
 def load_data():
     try:
         # Read the Excel file
-        df = pd.read_excel('Events Participation Updated.xlsx', sheet_name=None)
-        
-        # If multiple sheets, use the first one or the one named 'Events Participation'
-        if 'Events Participation' in df:
-            df = df['Events Participation']
-        else:
-            df = list(df.values())[0]
+        df = pd.read_excel('Events Participation Updated.xlsx')
         
         # Clean column names
         df.columns = df.columns.str.strip()
         
-        # Convert date column if exists
-        date_columns = [col for col in df.columns if 'date' in col.lower() or 'Date' in col]
-        if date_columns:
-            df[date_columns[0]] = pd.to_datetime(df[date_columns[0]], errors='coerce')
-            df.rename(columns={date_columns[0]: 'Date'}, inplace=True)
+        # Check for date columns (case insensitive)
+        date_columns = []
+        for col in df.columns:
+            if 'date' in str(col).lower():
+                date_columns.append(col)
         
-        # Extract year and month from date
+        # Try to convert date columns
+        for date_col in date_columns:
+            try:
+                # Try multiple date formats
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+                # Rename to standard 'Date' for consistency
+                df = df.rename(columns={date_col: 'Date'})
+                break  # Use the first successful date column
+            except:
+                continue
+        
+        # If no date column found or converted, check for timestamp strings
+        if 'Date' not in df.columns:
+            # Check if any column contains date-like strings
+            for col in df.columns:
+                sample_value = str(df[col].iloc[0]) if len(df) > 0 else ""
+                if any(date_indicator in sample_value.lower() for date_indicator in ['-', '/', '2024', '2025', '2026']):
+                    try:
+                        df['Date'] = pd.to_datetime(df[col], errors='coerce')
+                        break
+                    except:
+                        continue
+        
+        # Extract year and month from date if available
         if 'Date' in df.columns:
-            df['Year'] = df['Date'].dt.year
-            df['Month'] = df['Date'].dt.month_name()
-            df['Quarter'] = df['Date'].dt.quarter
+            # Check if Date column is datetime
+            if pd.api.types.is_datetime64_any_dtype(df['Date']):
+                df['Year'] = df['Date'].dt.year
+                df['Month'] = df['Date'].dt.month_name()
+                df['Quarter'] = df['Date'].dt.quarter
+                df['Day'] = df['Date'].dt.day
+                df['Weekday'] = df['Date'].dt.day_name()
+            else:
+                # If not datetime, try to convert
+                try:
+                    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+                    df['Year'] = df['Date'].dt.year
+                    df['Month'] = df['Date'].dt.month_name()
+                    df['Quarter'] = df['Date'].dt.quarter
+                except:
+                    # If conversion fails, remove the Date column
+                    df = df.drop('Date', axis=1, errors='ignore')
         
-        st.sidebar.success(f"✅ Loaded {len(df)} records")
+        st.success(f"✅ Successfully loaded {len(df)} records")
+        
+        # Show column info for debugging
+        st.sidebar.info(f"Columns found: {', '.join(df.columns.tolist()[:10])}")
+        if len(df.columns) > 10:
+            st.sidebar.info(f"... and {len(df.columns) - 10} more columns")
+        
         return df
         
     except Exception as e:
-        st.error(f"Error loading file: {e}")
-        # Create sample data
+        st.error(f"Error loading file: {str(e)}")
+        # Create sample data as fallback
         return create_sample_data()
 
 def create_sample_data():
