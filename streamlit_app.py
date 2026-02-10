@@ -59,50 +59,77 @@ st.markdown("""
         font-size: 1rem;
         opacity: 0.9;
     }
-    .select-all-btn {
-        margin-top: 5px;
-        margin-bottom: 5px;
+    .filter-section {
+        margin-bottom: 1.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# FIXED: Select All functionality that actually works
-def create_select_all_filter(label, options, default_selected=None, key_prefix="filter"):
+# FIXED: Working Select All functionality without session state conflicts
+def create_filter_with_select_all(label, options, default_selected=None, key_suffix=""):
     """
-    Create a filter with Select All functionality that actually works
+    Create a filter with Select All functionality that works properly
     """
     if default_selected is None:
         default_selected = options[:min(5, len(options))]
     
-    # Initialize session state for this filter
-    filter_key = f"{key_prefix}_{label.replace(' ', '_').lower()}"
+    # Create a unique key for this filter
+    filter_key = f"filter_{label.replace(' ', '_').lower()}_{key_suffix}"
     
-    if filter_key not in st.session_state:
-        st.session_state[filter_key] = default_selected
+    # Store selection state separately from widget state
+    selection_key = f"{filter_key}_selection"
+    
+    # Initialize selection state
+    if selection_key not in st.session_state:
+        st.session_state[selection_key] = default_selected
     
     # Create columns for buttons
-    button_col1, button_col2 = st.columns(2)
+    col1, col2 = st.columns(2)
     
-    with button_col1:
-        if st.button(f"✓ Select All", key=f"{filter_key}_select_all"):
-            st.session_state[filter_key] = options
+    with col1:
+        if st.button(f"✓ Select All", key=f"{filter_key}_select_all_btn"):
+            st.session_state[selection_key] = options
             st.rerun()
     
-    with button_col2:
-        if st.button(f"✗ Clear All", key=f"{filter_key}_clear_all"):
-            st.session_state[filter_key] = []
+    with col2:
+        if st.button(f"✗ Clear All", key=f"{filter_key}_clear_all_btn"):
+            st.session_state[selection_key] = []
             st.rerun()
     
-    # Create the multiselect
+    # Get current selection from our session state (not widget state)
+    current_selection = st.session_state[selection_key]
+    
+    # Create the multiselect widget with current selection
     selected = st.multiselect(
         label,
         options=options,
-        default=st.session_state[filter_key],
+        default=current_selection,
         key=filter_key
     )
     
-    # Update session state
-    st.session_state[filter_key] = selected
+    # Update our session state with the current selection
+    st.session_state[selection_key] = selected
+    
+    return selected
+
+# Alternative simpler approach
+def simple_select_all_filter(label, options):
+    """
+    Simpler approach using checkboxes for select all
+    """
+    # Add a "Select All" checkbox
+    select_all = st.checkbox(f"Select All {label}", value=True, 
+                           key=f"select_all_{label.replace(' ', '_')}")
+    
+    if select_all:
+        selected = options
+    else:
+        selected = st.multiselect(
+            f"Choose {label}:",
+            options=options,
+            default=options[:min(3, len(options))],
+            key=f"multiselect_{label.replace(' ', '_')}"
+        )
     
     return selected
 
@@ -149,8 +176,7 @@ def load_data():
                     continue
         
         # Show column info
-        st.sidebar.info(f"📊 Loaded {len(df)} records")
-        st.sidebar.info(f"📋 Found {len(df.columns)} columns")
+        st.sidebar.success(f"✅ Loaded {len(df)} records")
         
         return df
         
@@ -189,12 +215,6 @@ def main():
     # Load data
     df = load_data()
     
-    # Debug: Show column names
-    if st.sidebar.button("🔍 Show Columns"):
-        st.sidebar.write("Columns in DataFrame:")
-        for i, col in enumerate(df.columns):
-            st.sidebar.write(f"{i+1}. {col}")
-    
     # Main header
     st.markdown('<h1 class="main-header">🎓 Event Participation Dashboard</h1>', unsafe_allow_html=True)
     
@@ -229,75 +249,64 @@ def main():
     venue_col = next((col for col in df.columns if 'venue' in str(col).lower()), None)
     year_col = next((col for col in df.columns if col in ['Year', 'Academic Year', 'year']), None)
     
-    # Course Filter with WORKING Select All
+    # Course Filter with SIMPLE Select All (using checkbox approach)
     if course_col:
         st.sidebar.subheader("🎓 Courses")
         all_courses = sorted([str(c) for c in df[course_col].dropna().unique() if pd.notna(c)])
-        selected_courses = create_select_all_filter(
-            "Select Courses",
-            all_courses,
-            default_selected=all_courses[:min(3, len(all_courses))],
-            key_prefix="course"
-        )
+        selected_courses = simple_select_all_filter("Courses", all_courses)
         
         if selected_courses:
             df = df[df[course_col].isin(selected_courses)]
             filters_applied['Courses'] = f"{len(selected_courses)} selected"
     
-    # Event Filter with WORKING Select All
+    # Event Filter with SIMPLE Select All
     if event_col:
         st.sidebar.subheader("🎯 Events")
         all_events = sorted([str(e) for e in df[event_col].dropna().unique() if pd.notna(e)])
-        selected_events = create_select_all_filter(
-            "Select Events",
-            all_events,
-            default_selected=all_events[:min(3, len(all_events))],
-            key_prefix="event"
-        )
+        selected_events = simple_select_all_filter("Events", all_events)
         
         if selected_events:
             df = df[df[event_col].isin(selected_events)]
             filters_applied['Events'] = f"{len(selected_events)} selected"
     
-    # Gender Filter with WORKING Select All
+    # Gender Filter - SIMPLE approach
     if gender_col:
         st.sidebar.subheader("⚧️ Gender")
         all_genders = sorted([str(g) for g in df[gender_col].dropna().unique() if pd.notna(g)])
-        selected_genders = create_select_all_filter(
+        
+        # Simple approach without complex select all
+        selected_genders = st.multiselect(
             "Select Gender",
             all_genders,
-            default_selected=all_genders,
-            key_prefix="gender"
+            default=all_genders,
+            key="gender_filter"
         )
         
         if selected_genders:
             df = df[df[gender_col].isin(selected_genders)]
             filters_applied['Genders'] = f"{len(selected_genders)} selected"
     
-    # Venue Filter with WORKING Select All
+    # Venue Filter - SIMPLE approach
     if venue_col:
         st.sidebar.subheader("📍 Venues")
         all_venues = sorted([str(v) for v in df[venue_col].dropna().unique() if pd.notna(v)])
-        selected_venues = create_select_all_filter(
-            "Select Venues",
-            all_venues,
-            default_selected=all_venues[:min(3, len(all_venues))],
-            key_prefix="venue"
-        )
+        selected_venues = simple_select_all_filter("Venues", all_venues)
         
         if selected_venues:
             df = df[df[venue_col].isin(selected_venues)]
             filters_applied['Venues'] = f"{len(selected_venues)} selected"
     
-    # Year Filter with WORKING Select All
+    # Year Filter - SIMPLE approach
     if year_col:
         st.sidebar.subheader("📚 Academic Year")
         all_years = sorted([str(y) for y in df[year_col].dropna().unique() if pd.notna(y)])
-        selected_years = create_select_all_filter(
+        
+        # Simple approach without complex select all
+        selected_years = st.multiselect(
             "Select Years",
             all_years,
-            default_selected=all_years,
-            key_prefix="year"
+            default=all_years,
+            key="year_filter"
         )
         
         if selected_years:
@@ -345,7 +354,7 @@ def main():
         st.markdown('<div class="metric-label">⚖️ Gender Distribution</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Data Preview - FIXED: Using width='stretch' instead of use_container_width
+    # Data Preview
     st.markdown('<h2 class="sub-header">📋 Data Explorer</h2>', unsafe_allow_html=True)
     
     # Search functionality
@@ -359,7 +368,7 @@ def main():
     else:
         df_display = df.copy()
     
-    # Display first 50 rows - FIXED: using width='stretch'
+    # Display first 50 rows
     st.dataframe(df_display.head(50), height=400, width='stretch')
     st.caption(f"Showing {min(50, len(df_display))} of {len(df_display)} records")
     
@@ -468,7 +477,7 @@ def main():
                     else:
                         st.bar_chart(venue_counts)
     
-    # Export Section - FIXED: using width='stretch' for buttons
+    # Export Section
     st.markdown('<h2 class="sub-header">📥 Export Data</h2>', unsafe_allow_html=True)
     
     export_col1, export_col2 = st.columns(2)
@@ -481,7 +490,7 @@ def main():
             data=csv_data,
             file_name="event_participation.csv",
             mime="text/csv",
-            use_container_width=True  # This is still valid for download_button
+            use_container_width=True
         )
     
     with export_col2:
@@ -495,16 +504,14 @@ def main():
             data=output.getvalue(),
             file_name="event_participation.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True  # This is still valid for download_button
+            use_container_width=True
         )
     
-    # Reset button in sidebar
+    # Reset button in sidebar - SIMPLIFIED
     st.sidebar.markdown("---")
-    if st.sidebar.button("🔄 Reset All Filters", use_container_width=True):
-        # Clear all filter selections
-        for key in list(st.session_state.keys()):
-            if key.startswith(('course_', 'event_', 'gender_', 'venue_', 'year_')):
-                del st.session_state[key]
+    if st.sidebar.button("🔄 Reset All Filters", use_container_width=True, key="reset_filters"):
+        # Clear the app and rerun
+        st.cache_data.clear()
         st.rerun()
 
 if __name__ == "__main__":
