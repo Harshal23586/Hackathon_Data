@@ -645,7 +645,7 @@ def main():
     
     with tab4:
         col1, col2 = st.columns(2)
-        
+    
         with col1:
             if course_col:
                 # Course Distribution Sunburst Chart
@@ -668,19 +668,20 @@ def main():
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.bar_chart(course_counts)
-        
+    
         with col2:
             if venue_col:
                 # Venue Distribution Horizontal Bar Chart
                 venue_counts = df[venue_col].value_counts().head(10)
                 if not venue_counts.empty:
                     if PLOTLY_AVAILABLE:
+                        # Fix: Use a solid color or color sequence instead of gradient string
                         fig = go.Figure(data=[
                             go.Bar(
                                 x=venue_counts.values,
                                 y=venue_counts.index,
                                 orientation='h',
-                                marker_color='linear-gradient(rgba(0, 201, 255, 0.8), rgba(146, 254, 157, 0.8))',
+                                marker_color=px.colors.sequential.Viridis,  # Use Plotly color sequence
                                 text=venue_counts.values,
                                 textposition='auto'
                             )
