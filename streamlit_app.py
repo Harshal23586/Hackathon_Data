@@ -15,17 +15,6 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     st.warning("Plotly not available. Using simpler visualizations.")
 
-# Try to import ReportLab for PDF generation
-try:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    REPORTLAB_AVAILABLE = True
-except ImportError:
-    REPORTLAB_AVAILABLE = False
-    st.warning("ReportLab not available. PDF export will not work.")
-
 # Set page configuration
 st.set_page_config(
     page_title="Event Participation Dashboard",
@@ -71,10 +60,6 @@ st.markdown("""
         font-size: 1rem;
         opacity: 0.9;
     }
-    .select-all-btn {
-        margin-top: 5px;
-        margin-bottom: 5px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -118,51 +103,91 @@ def select_all_multiselect(label, options, default=None, key=None):
     
     return selected
 
-# Load data
+# Load data with duplicate column handling
 @st.cache_data
 def load_data():
     try:
         # Read the Excel file
         df = pd.read_excel('Events Participation Updated.xlsx')
         
-        # Clean column names
+        # FIX: Handle duplicate column names by renaming duplicates
+        cols = pd.Series(df.columns)
+        
+        # Identify duplicate column names
+        duplicate_mask = cols.duplicated(keep='first')
+        
+        if duplicate_mask.any():
+            st.warning(f"⚠️ Found {duplicate_mask.sum()} duplicate column names. Renaming duplicates...")
+            
+            # Create new column names for duplicates
+            new_cols = []
+            seen = {}
+            for col in df.columns:
+                if col not in seen:
+                    seen[col] = 1
+                    new_cols.append(col)
+                else:
+                    seen[col] += 1
+                    new_cols.append(f"{col}_{seen[col]}")
+            
+            df.columns = new_cols
+            st.success(f"✅ Renamed duplicate columns. New columns: {', '.join(new_cols[:10])}...")
+        
+        # Clean column names (remove extra spaces)
         df.columns = df.columns.str.strip()
         
-        # Check for date columns and convert
-        date_columns = [col for col in df.columns if 'date' in str(col).lower()]
+        # Check for date columns and convert (handle multiple date columns)
+        date_columns = []
+        for col in df.columns:
+            if 'date' in str(col).lower():
+                date_columns.append(col)
         
-        for date_col in date_columns:
-            try:
-                df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-                df = df.rename(columns={date_col: 'Date'})
-                break
-            except:
-                continue
+        if date_columns:
+            st.info(f"Found date columns: {date_columns}")
+            
+            # Try each date column
+            for date_col in date_columns:
+                try:
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+                    # Rename the first successful date column to 'Date'
+                    if 'Date' not in df.columns:
+                        df = df.rename(columns={date_col: 'Date'})
+                        st.success(f"✅ Using '{date_col}' as Date column")
+                        break
+                except Exception as e:
+                    st.warning(f"Could not convert {date_col}: {e}")
         
         # If date conversion was successful, extract date parts
-        if 'Date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['Date']):
-            df['Year'] = df['Date'].dt.year
-            df['Month'] = df['Date'].dt.month_name()
-            df['Quarter'] = df['Date'].dt.quarter
-        else:
-            # Try to create Year column from academic year if available
-            if 'Year' in df.columns:
-                # Check if Year contains academic years like 'FY', 'SY', etc.
-                if df['Year'].astype(str).str.contains('FY|SY|TY|Final', case=False, na=False).any():
-                    # Keep as is
-                    pass
+        if 'Date' in df.columns:
+            try:
+                if pd.api.types.is_datetime64_any_dtype(df['Date']):
+                    df['Year'] = df['Date'].dt.year
+                    df['Month'] = df['Date'].dt.month_name()
+                    df['Quarter'] = df['Date'].dt.quarter
                 else:
-                    # Try to extract year numbers
-                    try:
-                        df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
-                    except:
-                        pass
+                    # Try to convert
+                    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+                    if pd.api.types.is_datetime64_any_dtype(df['Date']):
+                        df['Year'] = df['Date'].dt.year
+                        df['Month'] = df['Date'].dt.month_name()
+                        df['Quarter'] = df['Date'].dt.quarter
+            except Exception as e:
+                st.warning(f"Could not extract date parts: {e}")
         
-        st.success(f"✅ Loaded {len(df)} records")
+        # Show column info for debugging
+        st.sidebar.info(f"📊 Loaded {len(df)} records")
+        st.sidebar.info(f"📋 Columns: {len(df.columns)}")
+        
+        # Show first few column names
+        col_preview = df.columns.tolist()[:10]
+        if len(df.columns) > 10:
+            col_preview.append(f"... and {len(df.columns) - 10} more")
+        st.sidebar.info(f"🔍 Columns found: {', '.join(col_preview)}")
+        
         return df
         
     except Exception as e:
-        st.error(f"Error loading file: {e}")
+        st.error(f"Error loading file: {str(e)}")
         # Create sample data
         return create_sample_data()
 
@@ -195,71 +220,15 @@ def create_sample_data():
     
     return df
 
-def generate_pdf_report(df, filters_applied, summary_stats):
-    """Generate PDF report"""
-    if not REPORTLAB_AVAILABLE:
-        st.error("ReportLab is not installed. Cannot generate PDF.")
-        return None
-    
-    try:
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        styles = getSampleStyleSheet()
-        story = []
-        
-        # Title
-        story.append(Paragraph("Event Participation Report", styles['Heading1']))
-        story.append(Spacer(1, 20))
-        
-        # Summary Statistics
-        story.append(Paragraph("Summary Statistics", styles['Heading2']))
-        summary_data = [['Metric', 'Value']]
-        for metric, value in summary_stats.items():
-            summary_data.append([metric, str(value)])
-        
-        summary_table = Table(summary_data)
-        summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3B82F6')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        story.append(summary_table)
-        story.append(Spacer(1, 20))
-        
-        # Data Sample
-        story.append(Paragraph("Data Sample (First 20 Records)", styles['Heading2']))
-        
-        # Prepare data for table
-        pdf_data = [df.columns.tolist()]
-        for i, row in df.head(20).iterrows():
-            pdf_data.append([str(cell)[:30] for cell in row.tolist()])  # Truncate long values
-        
-        data_table = Table(pdf_data, repeatRows=1)
-        data_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6B7280')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
-        ]))
-        story.append(data_table)
-        
-        # Build PDF
-        doc.build(story)
-        buffer.seek(0)
-        return buffer
-        
-    except Exception as e:
-        st.error(f"Error generating PDF: {e}")
-        return None
-
 def main():
     # Load data
     df = load_data()
+    
+    # Debug: Show all columns
+    if st.sidebar.button("🔍 Show All Columns"):
+        st.sidebar.write("All Columns in DataFrame:")
+        for i, col in enumerate(df.columns):
+            st.sidebar.write(f"{i+1}. {col}")
     
     # Main header
     st.markdown('<h1 class="main-header">🎓 Event Participation Dashboard</h1>', unsafe_allow_html=True)
@@ -270,28 +239,40 @@ def main():
     
     filters_applied = {}
     
-    # Date Range Filter
-    if 'Date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['Date']):
-        st.sidebar.subheader("📅 Date Range")
-        min_date = df['Date'].min().date()
-        max_date = df['Date'].max().date()
-        
-        date_range = st.sidebar.date_input(
-            "Select Date Range",
-            [min_date, max_date],
-            min_value=min_date,
-            max_value=max_date
-        )
-        
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            df = df[(df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)]
-            filters_applied['Date Range'] = f"{start_date} to {end_date}"
+    # Date Range Filter - Only if Date column exists and is datetime
+    if 'Date' in df.columns:
+        try:
+            if pd.api.types.is_datetime64_any_dtype(df['Date']):
+                st.sidebar.subheader("📅 Date Range")
+                min_date = df['Date'].min().date()
+                max_date = df['Date'].max().date()
+                
+                date_range = st.sidebar.date_input(
+                    "Select Date Range",
+                    [min_date, max_date],
+                    min_value=min_date,
+                    max_value=max_date
+                )
+                
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                    df = df[(df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)]
+                    filters_applied['Date Range'] = f"{start_date} to {end_date}"
+            else:
+                st.sidebar.warning("⚠️ Date column is not in datetime format")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Date filter error: {e}")
     
     # Course Filter with Select All
-    if 'Course' in df.columns:
+    course_col = None
+    for col in df.columns:
+        if 'course' in str(col).lower():
+            course_col = col
+            break
+    
+    if course_col:
         st.sidebar.subheader("🎓 Courses")
-        all_courses = sorted([str(c) for c in df['Course'].dropna().unique() if pd.notna(c)])
+        all_courses = sorted([str(c) for c in df[course_col].dropna().unique() if pd.notna(c)])
         selected_courses = select_all_multiselect(
             "Select Courses",
             all_courses,
@@ -300,13 +281,19 @@ def main():
         )
         
         if selected_courses:
-            df = df[df['Course'].isin(selected_courses)]
+            df = df[df[course_col].isin(selected_courses)]
             filters_applied['Courses'] = f"{len(selected_courses)} selected"
     
     # Event Filter with Select All
-    if 'Event Title' in df.columns:
+    event_col = None
+    for col in df.columns:
+        if 'event' in str(col).lower():
+            event_col = col
+            break
+    
+    if event_col:
         st.sidebar.subheader("🎯 Events")
-        all_events = sorted([str(e) for e in df['Event Title'].dropna().unique() if pd.notna(e)])
+        all_events = sorted([str(e) for e in df[event_col].dropna().unique() if pd.notna(e)])
         selected_events = select_all_multiselect(
             "Select Events",
             all_events,
@@ -315,13 +302,19 @@ def main():
         )
         
         if selected_events:
-            df = df[df['Event Title'].isin(selected_events)]
+            df = df[df[event_col].isin(selected_events)]
             filters_applied['Events'] = f"{len(selected_events)} selected"
     
     # Gender Filter with Select All
-    if 'Gender' in df.columns:
+    gender_col = None
+    for col in df.columns:
+        if 'gender' in str(col).lower():
+            gender_col = col
+            break
+    
+    if gender_col:
         st.sidebar.subheader("⚧️ Gender")
-        all_genders = sorted([str(g) for g in df['Gender'].dropna().unique() if pd.notna(g)])
+        all_genders = sorted([str(g) for g in df[gender_col].dropna().unique() if pd.notna(g)])
         selected_genders = select_all_multiselect(
             "Select Gender",
             all_genders,
@@ -330,13 +323,19 @@ def main():
         )
         
         if selected_genders:
-            df = df[df['Gender'].isin(selected_genders)]
+            df = df[df[gender_col].isin(selected_genders)]
             filters_applied['Genders'] = f"{len(selected_genders)} selected"
     
     # Venue Filter with Select All
-    if 'Venue' in df.columns:
+    venue_col = None
+    for col in df.columns:
+        if 'venue' in str(col).lower():
+            venue_col = col
+            break
+    
+    if venue_col:
         st.sidebar.subheader("📍 Venues")
-        all_venues = sorted([str(v) for v in df['Venue'].dropna().unique() if pd.notna(v)])
+        all_venues = sorted([str(v) for v in df[venue_col].dropna().unique() if pd.notna(v)])
         selected_venues = select_all_multiselect(
             "Select Venues",
             all_venues,
@@ -345,13 +344,20 @@ def main():
         )
         
         if selected_venues:
-            df = df[df['Venue'].isin(selected_venues)]
+            df = df[df[venue_col].isin(selected_venues)]
             filters_applied['Venues'] = f"{len(selected_venues)} selected"
     
     # Year Filter (Academic Year) with Select All
-    if 'Year' in df.columns:
+    year_col = None
+    # First check for academic year
+    for col in df.columns:
+        if col in ['Year', 'Academic Year', 'Academic_Year', 'year']:
+            year_col = col
+            break
+    
+    if year_col:
         st.sidebar.subheader("📚 Academic Year")
-        all_years = sorted([str(y) for y in df['Year'].dropna().unique() if pd.notna(y)])
+        all_years = sorted([str(y) for y in df[year_col].dropna().unique() if pd.notna(y)])
         selected_years = select_all_multiselect(
             "Select Years",
             all_years,
@@ -360,7 +366,7 @@ def main():
         )
         
         if selected_years:
-            df = df[df['Year'].astype(str).isin(selected_years)]
+            df = df[df[year_col].astype(str).isin(selected_years)]
             filters_applied['Academic Years'] = f"{len(selected_years)} selected"
     
     # Key Metrics
@@ -368,15 +374,22 @@ def main():
     
     col1, col2, col3, col4 = st.columns(4)
     
+    # Find candidate name column
+    candidate_col = None
+    for col in df.columns:
+        if 'name' in str(col).lower() or 'candidate' in str(col).lower():
+            candidate_col = col
+            break
+    
     with col1:
-        participants = df['Candidate Name'].nunique() if 'Candidate Name' in df.columns else 0
+        participants = df[candidate_col].nunique() if candidate_col else 0
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="metric-value">{participants:,}</div>', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">👥 Total Participants</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        events = df['Event Title'].nunique() if 'Event Title' in df.columns else 0
+        events = df[event_col].nunique() if event_col else 0
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="metric-value">{events:,}</div>', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">🎯 Unique Events</div>', unsafe_allow_html=True)
@@ -390,9 +403,9 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col4:
-        if 'Gender' in df.columns:
-            male_count = (df['Gender'] == 'Male').sum()
-            female_count = (df['Gender'] == 'Female').sum()
+        if gender_col:
+            male_count = (df[gender_col] == 'Male').sum()
+            female_count = (df[gender_col] == 'Female').sum()
             ratio = f"M:{male_count} F:{female_count}"
         else:
             ratio = "N/A"
@@ -416,18 +429,9 @@ def main():
     else:
         df_display = df.copy()
     
-    # Display data
-    display_cols = []
-    for col in ['Sr. No.', 'Candidate Name', 'Gender', 'Course', 'Year', 'Event Title', 'Date', 'Venue']:
-        if col in df_display.columns:
-            display_cols.append(col)
-    
-    if display_cols:
-        st.dataframe(df_display[display_cols].head(100), use_container_width=True, height=400)
-    else:
-        st.dataframe(df_display.head(100), use_container_width=True, height=400)
-    
-    st.caption(f"Showing {min(100, len(df_display))} of {len(df_display)} records")
+    # Display data - show all columns but limit rows
+    st.dataframe(df_display.head(50), use_container_width=True, height=400)
+    st.caption(f"Showing {min(50, len(df_display))} of {len(df_display)} records")
     
     # Enhanced Visualizations
     st.markdown('<h2 class="sub-header">📈 Advanced Analytics</h2>', unsafe_allow_html=True)
@@ -440,8 +444,8 @@ def main():
         
         with col1:
             # Top Events Chart
-            if 'Event Title' in df.columns:
-                top_events = df['Event Title'].value_counts().head(10)
+            if event_col:
+                top_events = df[event_col].value_counts().head(10)
                 if PLOTLY_AVAILABLE and not top_events.empty:
                     try:
                         fig1 = go.Figure(data=[
@@ -459,15 +463,16 @@ def main():
                             height=400
                         )
                         st.plotly_chart(fig1, use_container_width=True)
-                    except:
+                    except Exception as e:
+                        st.error(f"Plotly error: {e}")
                         st.bar_chart(top_events)
                 else:
                     st.bar_chart(top_events)
         
         with col2:
             # Event Distribution Table
-            if 'Event Title' in df.columns:
-                event_summary = df['Event Title'].value_counts().reset_index()
+            if event_col:
+                event_summary = df[event_col].value_counts().reset_index()
                 event_summary.columns = ['Event Title', 'Count']
                 st.dataframe(event_summary, use_container_width=True, height=400)
     
@@ -476,8 +481,8 @@ def main():
         
         with col1:
             # Gender Distribution
-            if 'Gender' in df.columns:
-                gender_counts = df['Gender'].value_counts()
+            if gender_col:
+                gender_counts = df[gender_col].value_counts()
                 if PLOTLY_AVAILABLE and not gender_counts.empty:
                     try:
                         fig2 = go.Figure(data=[go.Pie(
@@ -497,8 +502,8 @@ def main():
         
         with col2:
             # Academic Year Distribution
-            if 'Year' in df.columns:
-                year_counts = df['Year'].value_counts()
+            if year_col:
+                year_counts = df[year_col].value_counts()
                 if not year_counts.empty:
                     st.bar_chart(year_counts)
     
@@ -507,25 +512,24 @@ def main():
         
         with col1:
             # Course-wise participation
-            if 'Course' in df.columns:
-                course_counts = df['Course'].value_counts()
+            if course_col:
+                course_counts = df[course_col].value_counts()
                 if not course_counts.empty:
                     st.bar_chart(course_counts)
         
         with col2:
-            # Venue Distribution - FIXED VERSION
-            if 'Venue' in df.columns:
-                venue_counts = df['Venue'].value_counts().head(10)
+            # Venue Distribution
+            if venue_col:
+                venue_counts = df[venue_col].value_counts().head(10)
                 if not venue_counts.empty:
                     if PLOTLY_AVAILABLE:
                         try:
-                            # Use simple color instead of gradient
                             fig3 = go.Figure(data=[
                                 go.Bar(
-                                    x=venue_counts.index.astype(str),  # Ensure string type
+                                    x=venue_counts.index.astype(str),
                                     y=venue_counts.values,
                                     marker_color='#10B981',
-                                    text=venue_counts.values.astype(str).tolist(),  # Convert to list of strings
+                                    text=venue_counts.values.astype(str).tolist(),
                                     textposition='auto'
                                 )
                             ])
@@ -538,15 +542,15 @@ def main():
                             )
                             st.plotly_chart(fig3, use_container_width=True)
                         except Exception as e:
-                            st.error(f"Error creating venue chart: {str(e)}")
+                            st.error(f"Plotly error: {e}")
                             st.bar_chart(venue_counts)
                     else:
                         st.bar_chart(venue_counts)
     
     # Export Section
-    st.markdown('<h2 class="sub-header">📥 Export & Reports</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 class="sub-header">📥 Export Data</h2>', unsafe_allow_html=True)
     
-    export_col1, export_col2, export_col3 = st.columns(3)
+    export_col1, export_col2 = st.columns(2)
     
     with export_col1:
         # Export as CSV
@@ -564,16 +568,6 @@ def main():
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Event Participation')
-            # Add summary sheet
-            summary_data = {
-                'Metric': ['Total Participants', 'Total Events', 'Total Registrations'],
-                'Value': [
-                    df['Candidate Name'].nunique() if 'Candidate Name' in df.columns else 0,
-                    df['Event Title'].nunique() if 'Event Title' in df.columns else 0,
-                    len(df)
-                ]
-            }
-            pd.DataFrame(summary_data).to_excel(writer, index=False, sheet_name='Summary')
         
         st.download_button(
             label="📊 Download Excel",
@@ -583,45 +577,13 @@ def main():
             use_container_width=True
         )
     
-    with export_col3:
-        # Generate and download PDF report
-        if st.button("📄 Generate PDF Report", use_container_width=True):
-            with st.spinner("Generating PDF report..."):
-                # Prepare summary statistics
-                summary_stats = {
-                    'Total Participants': df['Candidate Name'].nunique() if 'Candidate Name' in df.columns else 0,
-                    'Total Events': df['Event Title'].nunique() if 'Event Title' in df.columns else 0,
-                    'Total Registrations': len(df),
-                    'Date Range': f"{df['Date'].min().date() if 'Date' in df.columns else 'N/A'} to {df['Date'].max().date() if 'Date' in df.columns else 'N/A'}"
-                }
-                
-                pdf_buffer = generate_pdf_report(df, filters_applied, summary_stats)
-                
-                if pdf_buffer:
-                    st.download_button(
-                        label="📥 Download PDF",
-                        data=pdf_buffer,
-                        file_name="event_participation_report.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-    
-    # Quick Stats in Sidebar
+    # Reset filters button
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📋 Quick Stats")
-    
-    if not df.empty:
-        if 'Course' in df.columns:
-            st.sidebar.metric("Courses", df['Course'].nunique())
-        if 'Event Title' in df.columns:
-            st.sidebar.metric("Events", df['Event Title'].nunique())
-        
-        # Reset filters button
-        if st.sidebar.button("🔄 Reset All Filters", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                if key.endswith('_selected'):
-                    st.session_state[key] = []
-            st.rerun()
+    if st.sidebar.button("🔄 Reset All Filters", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            if key.endswith('_selected'):
+                st.session_state[key] = []
+        st.rerun()
 
 if __name__ == "__main__":
     main()
