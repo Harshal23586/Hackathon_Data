@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import io
+import base64
 
 # Set page configuration
 st.set_page_config(
@@ -15,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS for styling
 st.markdown("""
 <style>
     .main-header {
@@ -35,80 +33,80 @@ st.markdown("""
         padding: 1rem;
         border-radius: 10px;
         border-left: 5px solid #3B82F6;
+        margin-bottom: 1rem;
+    }
+    .stDataFrame {
+        border: 1px solid #E5E7EB;
+        border-radius: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Load and preprocess data
+# Sample data - Replace this with your actual data loading
 @st.cache_data
-def load_data():
-    # For demo purposes, I'll recreate the dataframe from the provided content
-    # In a real scenario, you would read from the Excel file
-    data = []
+def load_sample_data():
+    """Create sample event participation data"""
+    np.random.seed(42)
     
-    # Parse the provided file content (simplified version)
-    lines = """Your provided data content would be processed here"""
+    # Create sample data
+    n_records = 200
     
-    # Since we have the data in the file content format, let's create a sample dataframe
-    # Based on the structure provided
-    
-    sample_data = {
-        'Sr. No.': list(range(1, 201)),
-        'Candidate Name': ['Prasad Manik Darade'] * 2 + ['Shaikh Mohammad Shaarif Mohammad Raees'] * 5 + ['Shweta Ishwar Bhangale'] * 4 + ['Kanishka Prafulla Wagh'] * 2,
-        'Gender': ['Male', 'Male', 'Male', 'Male', 'Male', 'Male', 'Male', 'Female', 'Female', 'Female', 'Female', 'Female', 'Female'],
-        'Contact': ['9373416337', '9373416337', '7057167751', '7057167751', '7057167751', '7057167751', '7057167751', 
-                   '7620996534', '7620996534', '7620996534', '7620996534', '8329494856', '8329494856'],
-        'Course': ['AIML', 'AIML', 'CSE', 'CSE', 'CSE', 'CSE', 'CSE', 'CSE', 'CSE', 'CSE', 'CSE', 'IT', 'IT'],
-        'Year': ['SY', 'SY', 'FY', 'FY', 'FY', 'FY', 'FY', 'SY', 'SY', 'SY', 'SY', 'SY', 'SY'],
-        'Event Title': ['SIH 2025 Top 50', 'RACKATHON', 'Sankalpana 2K25', 'MumbaiHacks 2025', 'Innerve X Pune', 
-                       'SIH 2025 Top 50', 'RACKATHON', 'RACKATHON', 'Ideathon 9.2', 'DIPEX', 'GHRHack 2.0',
-                       'Sankalpana 2K25', 'SIH 2025 Top 50'],
-        'Date': ['2025-09-30', '2026-01-31', '2025-09-26', '2025-12-06', '2025-12-29', '2025-09-30', '2026-01-31',
-                '2026-01-31', '2025-12-14', '2025-12-31', '2026-02-28', '2025-09-26', '2025-09-30'],
-        'Venue': ['AICTE, MoE, Govt of India', 'GRUA,Amravati', 'GHRCEM, Jalgaon', 'MSIS', 'Army Institute of Technology (AIT), Pune',
-                 'AICTE, MoE, Govt of India', 'GRUA,Amravati', 'GRUA,Amravati', 'Central Depository Services (India) Limited',
-                 'ABVP & Srijan Trust', 'GHRCEM, Jalgaon', 'GHRCEM, Jalgaon', 'AICTE, MoE, Govt of India']
+    data = {
+        'Sr. No.': list(range(1, n_records + 1)),
+        'Candidate Name': [f'Candidate {i}' for i in range(1, n_records + 1)],
+        'Gender': np.random.choice(['Male', 'Female'], n_records, p=[0.6, 0.4]),
+        'Contact': [f'9{np.random.randint(100000000, 999999999)}' for _ in range(n_records)],
+        'Course': np.random.choice(['CSE', 'AIML', 'AI', 'DS', 'IT', 'ENTC', 'Electrical', 'Civil', 'Mechanical'], n_records),
+        'Year': np.random.choice(['FY', 'SY', 'TY', 'Final Year'], n_records, p=[0.3, 0.3, 0.2, 0.2]),
+        'Event Title': np.random.choice([
+            'SIH 2025 Top 50', 'RACKATHON', 'Sankalpana 2K25', 'GHRHack 2.0', 
+            'DIPEX', 'AAVISHKAR 2K25', 'Innovate4FinLit', 'MumbaiHacks 2025'
+        ], n_records),
+        'Date': pd.date_range('2025-01-01', periods=n_records, freq='D').tolist(),
+        'Venue': np.random.choice([
+            'GHRCEM, Jalgaon', 'GRUA,Amravati', 'AICTE, MoE, Govt of India',
+            'Army Institute of Technology (AIT), Pune', 'MSIS', 'KBCNMU, Jalgaon'
+        ], n_records)
     }
     
-    # Extend with more sample data to match your structure
-    for i in range(14, 201):
-        sample_data['Sr. No.'].append(i)
-        sample_data['Candidate Name'].append(f'Candidate {i}')
-        sample_data['Gender'].append(np.random.choice(['Male', 'Female']))
-        sample_data['Contact'].append(f'9{np.random.randint(100000000, 999999999)}')
-        sample_data['Course'].append(np.random.choice(['CSE', 'AIML', 'AI', 'DS', 'IT', 'ENTC', 'Electrical', 'Civil']))
-        sample_data['Year'].append(np.random.choice(['FY', 'SY', 'TY', 'Final Year']))
-        sample_data['Event Title'].append(np.random.choice(['SIH 2025 Top 50', 'RACKATHON', 'Sankalpana 2K25', 
-                                                           'GHRHack 2.0', 'DIPEX', 'AAVISHKAR 2K25', 'Innovate4FinLit']))
-        sample_data['Date'].append(np.random.choice(['2025-09-26', '2025-09-30', '2025-12-06', '2025-12-31', 
-                                                    '2026-01-31', '2026-02-28']))
-        sample_data['Venue'].append(np.random.choice(['GHRCEM, Jalgaon', 'GRUA,Amravati', 'AICTE, MoE, Govt of India',
-                                                     'MSIS', 'Army Institute of Technology (AIT), Pune']))
+    df = pd.DataFrame(data)
     
-    df = pd.DataFrame(sample_data)
+    # Add some duplicate entries for realistic participation data
+    duplicate_indices = np.random.choice(df.index, size=50, replace=False)
+    duplicates = df.loc[duplicate_indices].copy()
+    duplicates['Event Title'] = np.random.choice(df['Event Title'].unique(), 50)
+    df = pd.concat([df, duplicates]).reset_index(drop=True)
     
-    # Convert date column to datetime
-    df['Date'] = pd.to_datetime(df['Date'])
-    
-    # Extract year and month for filtering
-    df['Year_Month'] = df['Date'].dt.strftime('%Y-%m')
-    df['Month'] = df['Date'].dt.month_name()
-    df['Year'] = df['Date'].dt.year
+    df['Sr. No.'] = range(1, len(df) + 1)
     
     return df
 
+def create_download_link(df, filename="event_participation_data.xlsx"):
+    """Create download link for Excel file"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Event Participation')
+    excel_data = output.getvalue()
+    b64 = base64.b64encode(excel_data).decode()
+    href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">📥 Download Excel File</a>'
+    return href
+
 def main():
     # Load data
-    df = load_data()
+    df = load_sample_data()
     
-    # Sidebar for filters
+    # Main header
+    st.markdown('<h1 class="main-header">🎓 Event Participation Dashboard</h1>', unsafe_allow_html=True)
+    
+    # Sidebar filters
     st.sidebar.title("🎯 Filters")
+    st.sidebar.markdown("---")
     
     # Date range filter
-    st.sidebar.subheader("Date Range")
-    min_date = df['Date'].min()
-    max_date = df['Date'].max()
+    min_date = df['Date'].min().date()
+    max_date = df['Date'].max().date()
     
+    st.sidebar.subheader("📅 Date Range")
     date_range = st.sidebar.date_input(
         "Select Date Range",
         [min_date, max_date],
@@ -118,26 +116,25 @@ def main():
     
     if len(date_range) == 2:
         start_date, end_date = date_range
-        df = df[(df['Date'] >= pd.Timestamp(start_date)) & 
-                (df['Date'] <= pd.Timestamp(end_date))]
+        df = df[(df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)]
     
     # Course filter
-    st.sidebar.subheader("Course")
-    all_courses = df['Course'].unique()
+    st.sidebar.subheader("🎓 Course")
+    all_courses = sorted(df['Course'].unique())
     selected_courses = st.sidebar.multiselect(
         "Select Courses",
         all_courses,
-        default=all_courses
+        default=all_courses[:3] if len(all_courses) > 3 else all_courses
     )
     
     if selected_courses:
         df = df[df['Course'].isin(selected_courses)]
     
     # Year filter
-    st.sidebar.subheader("Academic Year")
-    all_years = df['Year'].unique()
+    st.sidebar.subheader("📚 Academic Year")
+    all_years = sorted(df['Year'].unique())
     selected_years = st.sidebar.multiselect(
-        "Select Academic Years",
+        "Select Years",
         all_years,
         default=all_years
     )
@@ -146,20 +143,20 @@ def main():
         df = df[df['Year'].isin(selected_years)]
     
     # Event filter
-    st.sidebar.subheader("Event")
-    all_events = df['Event Title'].unique()
+    st.sidebar.subheader("🎯 Event")
+    all_events = sorted(df['Event Title'].unique())
     selected_events = st.sidebar.multiselect(
         "Select Events",
         all_events,
-        default=all_events
+        default=all_events[:3] if len(all_events) > 3 else all_events
     )
     
     if selected_events:
         df = df[df['Event Title'].isin(selected_events)]
     
     # Gender filter
-    st.sidebar.subheader("Gender")
-    all_genders = df['Gender'].unique()
+    st.sidebar.subheader("⚧️ Gender")
+    all_genders = sorted(df['Gender'].unique())
     selected_genders = st.sidebar.multiselect(
         "Select Gender",
         all_genders,
@@ -169,205 +166,125 @@ def main():
     if selected_genders:
         df = df[df['Gender'].isin(selected_genders)]
     
-    # Venue filter
-    st.sidebar.subheader("Venue")
-    all_venues = df['Venue'].unique()
-    selected_venues = st.sidebar.multiselect(
-        "Select Venues",
-        all_venues,
-        default=all_venues
-    )
+    # Key Metrics
+    st.markdown('<h2 class="sub-header">📊 Key Metrics</h2>', unsafe_allow_html=True)
     
-    if selected_venues:
-        df = df[df['Venue'].isin(selected_venues)]
-    
-    # Main content
-    st.markdown('<h1 class="main-header">🎓 Event Participation Dashboard</h1>', unsafe_allow_html=True)
-    
-    # Key metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Total Participants", df['Candidate Name'].nunique())
+        st.metric("👥 Total Participants", df['Candidate Name'].nunique())
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Total Events", df['Event Title'].nunique())
+        st.metric("🎯 Total Events", df['Event Title'].nunique())
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col3:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Total Registrations", len(df))
+        st.metric("📝 Total Registrations", len(df))
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col4:
-        gender_ratio = df['Gender'].value_counts()
-        male_count = gender_ratio.get('Male', 0)
-        female_count = gender_ratio.get('Female', 0)
+        male_count = (df['Gender'] == 'Male').sum()
+        female_count = (df['Gender'] == 'Female').sum()
         total = male_count + female_count
         ratio = f"{male_count/total*100:.1f}% : {female_count/total*100:.1f}%" if total > 0 else "N/A"
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Gender Ratio (M:F)", ratio)
+        st.metric("⚖️ Gender Ratio", ratio)
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Data preview
+    # Data Preview
     st.markdown('<h2 class="sub-header">📋 Data Preview</h2>', unsafe_allow_html=True)
-    st.dataframe(df[['Candidate Name', 'Gender', 'Course', 'Year', 'Event Title', 'Date', 'Venue']].head(20))
     
-    # Visualization section
-    st.markdown('<h2 class="sub-header">📊 Visualizations</h2>', unsafe_allow_html=True)
+    # Show filtered count
+    st.info(f"Showing **{len(df)}** records after applying filters")
+    
+    # Display data
+    display_columns = ['Sr. No.', 'Candidate Name', 'Gender', 'Course', 'Year', 'Event Title', 'Date', 'Venue']
+    st.dataframe(
+        df[display_columns],
+        use_container_width=True,
+        height=400
+    )
+    
+    # Visualizations using Streamlit's native charts
+    st.markdown('<h2 class="sub-header">📈 Visualizations</h2>', unsafe_allow_html=True)
     
     # Create tabs for different visualizations
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📈 Event Distribution", 
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Event Distribution", 
         "👥 Participant Analysis", 
-        "📅 Timeline View", 
-        "🎓 Course-wise Analysis",
-        "📍 Venue Analysis"
+        "📅 Timeline", 
+        "🎓 Course Analysis"
     ])
     
     with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Event popularity chart
-            event_counts = df['Event Title'].value_counts().reset_index()
-            event_counts.columns = ['Event Title', 'Count']
-            
-            fig1 = px.bar(
-                event_counts.head(10),
-                x='Event Title',
-                y='Count',
-                title='Top 10 Most Popular Events',
-                color='Count',
-                color_continuous_scale='Blues'
-            )
-            st.plotly_chart(fig1, use_container_width=True)
+            # Event popularity - Bar chart
+            event_counts = df['Event Title'].value_counts().head(10)
+            st.subheader("Top 10 Events by Participation")
+            st.bar_chart(event_counts)
         
         with col2:
-            # Events by month
-            monthly_events = df.groupby('Month').size().reset_index(name='Count')
-            month_order = ['January', 'February', 'March', 'April', 'May', 'June', 
-                          'July', 'August', 'September', 'October', 'November', 'December']
-            monthly_events['Month'] = pd.Categorical(monthly_events['Month'], categories=month_order, ordered=True)
-            monthly_events = monthly_events.sort_values('Month')
-            
-            fig2 = px.line(
-                monthly_events,
-                x='Month',
-                y='Count',
-                title='Events Distribution by Month',
-                markers=True
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            # Event distribution - Pie chart using bar chart
+            st.subheader("Event Distribution")
+            event_summary = df['Event Title'].value_counts()
+            st.dataframe(event_summary)
     
     with tab2:
         col1, col2 = st.columns(2)
         
         with col1:
             # Gender distribution
-            gender_counts = df['Gender'].value_counts().reset_index()
-            gender_counts.columns = ['Gender', 'Count']
-            
-            fig3 = px.pie(
-                gender_counts,
-                values='Count',
-                names='Gender',
-                title='Gender Distribution',
-                color_discrete_sequence=px.colors.qualitative.Set2
-            )
-            st.plotly_chart(fig3, use_container_width=True)
+            gender_counts = df['Gender'].value_counts()
+            st.subheader("Gender Distribution")
+            st.bar_chart(gender_counts)
         
         with col2:
             # Academic year distribution
-            year_counts = df['Year'].value_counts().reset_index()
-            year_counts.columns = ['Academic Year', 'Count']
-            
-            fig4 = px.bar(
-                year_counts,
-                x='Academic Year',
-                y='Count',
-                title='Participation by Academic Year',
-                color='Count',
-                color_continuous_scale='Viridis'
-            )
-            st.plotly_chart(fig4, use_container_width=True)
+            year_counts = df['Year'].value_counts()
+            st.subheader("Academic Year Distribution")
+            st.bar_chart(year_counts)
     
     with tab3:
-        # Timeline of events
-        timeline_data = df.groupby('Date').size().reset_index(name='Count')
-        timeline_data = timeline_data.sort_values('Date')
+        # Timeline analysis
+        st.subheader("Event Timeline")
         
-        fig5 = px.scatter(
-            timeline_data,
-            x='Date',
-            y='Count',
-            size='Count',
-            title='Event Timeline - Participation Over Time',
-            color='Count',
-            size_max=50
-        )
-        fig5.update_traces(mode='markers+lines')
-        st.plotly_chart(fig5, use_container_width=True)
+        # Group by date
+        timeline_data = df.groupby(df['Date'].dt.date).size()
+        timeline_df = pd.DataFrame({
+            'Date': timeline_data.index,
+            'Count': timeline_data.values
+        })
+        
+        # Line chart for timeline
+        st.line_chart(timeline_data)
+        
+        # Show timeline table
+        st.subheader("Daily Event Count")
+        st.dataframe(timeline_df.sort_values('Date', ascending=False).head(20))
     
     with tab4:
         col1, col2 = st.columns(2)
         
         with col1:
             # Course-wise participation
-            course_counts = df['Course'].value_counts().reset_index()
-            course_counts.columns = ['Course', 'Count']
-            
-            fig6 = px.bar(
-                course_counts,
-                x='Course',
-                y='Count',
-                title='Participation by Course',
-                color='Count',
-                color_continuous_scale='Plasma'
-            )
-            st.plotly_chart(fig6, use_container_width=True)
+            course_counts = df['Course'].value_counts()
+            st.subheader("Course-wise Participation")
+            st.bar_chart(course_counts)
         
         with col2:
-            # Course and year heatmap
-            course_year_data = df.groupby(['Course', 'Year']).size().reset_index(name='Count')
-            
-            fig7 = px.density_heatmap(
-                course_year_data,
-                x='Course',
-                y='Year',
-                z='Count',
-                title='Course vs Academic Year Heatmap',
-                color_continuous_scale='YlOrRd'
-            )
-            st.plotly_chart(fig7, use_container_width=True)
+            # Course vs Year heatmap data
+            st.subheader("Course vs Academic Year")
+            course_year_data = pd.crosstab(df['Course'], df['Year'])
+            st.dataframe(course_year_data)
     
-    with tab5:
-        # Venue analysis
-        venue_counts = df['Venue'].value_counts().reset_index()
-        venue_counts.columns = ['Venue', 'Count']
-        
-        fig8 = px.treemap(
-            venue_counts,
-            path=['Venue'],
-            values='Count',
-            title='Event Distribution by Venue',
-            color='Count',
-            color_continuous_scale='RdBu'
-        )
-        st.plotly_chart(fig8, use_container_width=True)
-    
-    # Detailed report section
-    st.markdown('<h2 class="sub-header">📄 Detailed Report</h2>', unsafe_allow_html=True)
-    
-    # Show filtered data
-    st.write(f"Showing {len(df)} records after applying filters")
-    
-    # Export options
-    st.markdown("---")
-    st.markdown("### 📥 Export Data")
+    # Export Section
+    st.markdown('<h2 class="sub-header">📥 Export Data</h2>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     
@@ -377,51 +294,44 @@ def main():
         st.download_button(
             label="📥 Download as CSV",
             data=csv,
-            file_name="event_participation_data.csv",
-            mime="text/csv"
+            file_name="event_participation.csv",
+            mime="text/csv",
+            help="Download filtered data as CSV file"
         )
     
     with col2:
         # Export as Excel
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Event Participation')
-        
-        st.download_button(
-            label="📥 Download as Excel",
-            data=output.getvalue(),
-            file_name="event_participation_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        excel_href = create_download_link(df)
+        st.markdown(excel_href, unsafe_allow_html=True)
     
     with col3:
-        # Export summary statistics
-        if st.button("📊 Generate Summary Report"):
+        # Generate summary report
+        if st.button("📊 Generate Summary Report", use_container_width=True):
             summary_data = {
                 'Metric': [
                     'Total Unique Participants',
                     'Total Events',
                     'Total Registrations',
-                    'Gender Ratio (Male:Female)',
+                    'Gender Ratio (M:F)',
                     'Most Popular Event',
                     'Most Active Course',
-                    'Most Active Month',
-                    'Most Frequent Venue'
+                    'Most Frequent Venue',
+                    'Data Range (Dates)'
                 ],
                 'Value': [
                     df['Candidate Name'].nunique(),
                     df['Event Title'].nunique(),
                     len(df),
-                    f"{df['Gender'].value_counts().get('Male', 0)} : {df['Gender'].value_counts().get('Female', 0)}",
+                    f"{(df['Gender'] == 'Male').sum()}:{(df['Gender'] == 'Female').sum()}",
                     df['Event Title'].value_counts().idxmax() if not df.empty else 'N/A',
                     df['Course'].value_counts().idxmax() if not df.empty else 'N/A',
-                    df['Month'].value_counts().idxmax() if not df.empty else 'N/A',
-                    df['Venue'].value_counts().idxmax() if not df.empty else 'N/A'
+                    df['Venue'].value_counts().idxmax() if not df.empty else 'N/A',
+                    f"{df['Date'].min().date()} to {df['Date'].max().date()}" if not df.empty else 'N/A'
                 ]
             }
             
             summary_df = pd.DataFrame(summary_data)
-            st.dataframe(summary_df)
+            st.dataframe(summary_df, use_container_width=True)
             
             # Download summary
             csv_summary = summary_df.to_csv(index=False).encode('utf-8')
@@ -436,31 +346,50 @@ def main():
     st.markdown("---")
     st.markdown("### 🔍 Search Participants")
     
-    search_term = st.text_input("Search by name or contact:")
+    search_col1, search_col2 = st.columns([3, 1])
     
-    if search_term:
-        search_results = df[df.apply(lambda row: search_term.lower() in str(row).lower(), axis=1)]
-        st.write(f"Found {len(search_results)} results")
-        st.dataframe(search_results[['Candidate Name', 'Gender', 'Course', 'Year', 'Event Title', 'Date', 'Venue']])
+    with search_col1:
+        search_term = st.text_input("Search by name, course, or event:", placeholder="Enter search term...")
     
-    # Statistics section
+    with search_col2:
+        search_button = st.button("Search", use_container_width=True)
+    
+    if search_term or search_button:
+        if search_term:
+            # Search across multiple columns
+            search_results = df[
+                df['Candidate Name'].str.contains(search_term, case=False, na=False) |
+                df['Course'].str.contains(search_term, case=False, na=False) |
+                df['Event Title'].str.contains(search_term, case=False, na=False) |
+                df['Venue'].str.contains(search_term, case=False, na=False)
+            ]
+        else:
+            search_results = pd.DataFrame()  # Empty dataframe if no search term
+        
+        if not search_results.empty:
+            st.success(f"Found {len(search_results)} matching records")
+            st.dataframe(search_results[display_columns], use_container_width=True)
+        else:
+            st.warning("No matching records found")
+    
+    # Statistics at the bottom
     st.markdown("---")
-    st.markdown("### 📊 Advanced Statistics")
+    st.markdown("### 📈 Advanced Statistics")
     
     if not df.empty:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Average Events per Participant", 
-                     f"{len(df)/df['Candidate Name'].nunique():.2f}")
+            avg_events = len(df) / df['Candidate Name'].nunique()
+            st.metric("📊 Avg Events per Participant", f"{avg_events:.2f}")
         
         with col2:
             most_active = df['Candidate Name'].value_counts().idxmax()
-            st.metric("Most Active Participant", most_active)
+            st.metric("👑 Most Active Participant", most_active.split()[0] + " " + most_active.split()[1][0])
         
         with col3:
             busiest_day = df['Date'].value_counts().idxmax()
-            st.metric("Busiest Event Day", busiest_day.strftime('%Y-%m-%d'))
+            st.metric("📅 Busiest Day", busiest_day.strftime('%d %b %Y'))
 
 if __name__ == "__main__":
     main()
