@@ -446,12 +446,15 @@ def main():
     
     # Display data
     display_columns = []
+    seen_columns = set()  # Track columns we've already added
+
     for col in ['Sr. No.', 'Candidate Name', 'Gender', 'Course', 'Year', 'Event Title', 'Date', 'Venue']:
         for df_col in df_display.columns:
-            if col.lower() in df_col.lower():
+            if col.lower() in df_col.lower() and df_col not in seen_columns:
                 display_columns.append(df_col)
-                break
-    
+                seen_columns.add(df_col)  # Mark as seen
+                break  # Only take the first match
+
     if display_columns:
         st.dataframe(df_display[display_columns].head(50), height=400, width='stretch')
     else:
